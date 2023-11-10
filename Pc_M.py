@@ -1,22 +1,18 @@
 import sys
 import psutil
 import cpuinfo
+import GPUtil
 import os
 import platform
-from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLabel, QPushButton, QTableWidget, QTableWidgetItem, QLineEdit, QMessageBox
-from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget, QLabel, QPushButton
+from datetime import datetime
 
 class MyWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.initUI()
-
-    def initUI(self):
         self.setWindowTitle("Інформація про систему")
-
-        screen = QApplication.desktop().screenGeometry()
-        self.setGeometry(screen)
+        self.setGeometry(100, 100, 600, 650)
 
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
@@ -31,15 +27,18 @@ class MyWindow(QMainWindow):
         memory_tab = QWidget()
         disk_tab = QWidget()
         score_tab = QWidget()
-        processes_tab = QWidget()
+        datetime_tab = QWidget()
+        battery_tab = QWidget()
+        network_tab = QWidget()
 
         tab_widget.addTab(system_tab, "Операційна система")
         tab_widget.addTab(gpu_tab, "Відеокарти")
         tab_widget.addTab(cpu_tab, "Процесор")
         tab_widget.addTab(memory_tab, "Оперативна пам'ять")
         tab_widget.addTab(disk_tab, "Вінчестер")
-        tab_widget.addTab(score_tab, "Бал")
-        tab_widget.addTab(processes_tab, "Процеси")
+        tab_widget.addTab(score_tab, "Тест")
+        tab_widget.addTab(datetime_tab, "Дата і час")
+        tab_widget.addTab(battery_tab, "Батарея")
 
         layout.addWidget(tab_widget)
 
@@ -48,7 +47,7 @@ class MyWindow(QMainWindow):
         layout.addWidget(theme_button)
 
         update_button = QPushButton("Оновити")
-        update_button.clicked.connect(self.update_info)
+        update_button.clicked.connect(self.update_all_info)
         layout.addWidget(update_button)
 
         self.is_light_theme = True
@@ -63,24 +62,13 @@ class MyWindow(QMainWindow):
         self.create_cpu_tab(cpu_tab)
         self.create_memory_tab(memory_tab)
         self.create_disk_tab(disk_tab)
-        self.create_processes_tab(processes_tab)
+        self.create_datetime_tab(datetime_tab)
+        self.create_battery_tab(battery_tab)
         self.calculate_score()
 
         score_layout = QVBoxLayout()
         score_layout.addWidget(self.score_label)
         score_tab.setLayout(score_layout)
-
-        self.processes_table = QTableWidget()
-        self.processes_table.setColumnCount(3)
-        self.processes_table.setHorizontalHeaderLabels(["PID", "Ім'я", "Користувач"])
-        layout.addWidget(self.processes_table)
-        new_width = 100
-        new_height = 150
-        self.processes_table.setMinimumSize(new_width, new_height)
-
-        self.processes_update_timer = QTimer(self)
-        self.processes_update_timer.timeout.connect(self.update_processes_table)
-        self.processes_update_timer.start(5000)
 
     def toggle_theme(self):
         self.is_light_theme = not self.is_light_theme
@@ -196,7 +184,6 @@ class MyWindow(QMainWindow):
         tab.setLayout(layout)
 
         memory_total = self.get_memory_info()
-
         memory_total_label = QLabel(f"Кількість оперативної пам'яті: {memory_total:.2f} GB")
         layout.addWidget(memory_total_label)
 
@@ -214,48 +201,40 @@ class MyWindow(QMainWindow):
             disk_total_label = QLabel(f"Кількість пам'яті вінчестера: {disk_total_gb:.2f} GB")
             layout.addWidget(disk_total_label)
 
-    def create_processes_tab(self, tab):
+    def create_datetime_tab(self, tab):
         layout = QVBoxLayout()
         tab.setLayout(layout)
 
-        search_label = QLabel("Пошук/Завершення процесів:")
-        search_input = QLineEdit()
-        search_button = QPushButton("Знайти та Завершити")
-        layout.addWidget(search_label)
-        layout.addWidget(search_input)
-        layout.addWidget(search_button)
+        datetime_label = QLabel(f"Поточна дата і час: {datetime.now()}")
+        layout.addWidget(datetime_label)
 
-        search_button.clicked.connect(lambda: self.search_and_terminate_process(search_input.text()))
+    def create_battery_tab(self, tab):
+        layout = QVBoxLayout()
+        tab.setLayout(layout)
 
+        battery_info = self.get_battery_info()
 
+        for key, value in battery_info.items():
+            battery_label = QLabel(f"{key}: {value}")
+            layout.addWidget(battery_label)
 
-    def search_and_terminate_process(self, query):
-        try:
-            query = int(query)
-        except ValueError:
-            query = query.lower()
-
-        for process in psutil.process_iter(attrs=["pid", "name", "username"]):
-            try:
-                process_info = process.info
-                pid = process_info['pid']
-                name = process_info['name'].lower()
-                username = process_info['username']
-
-                if pid == query or name == query:
-                    psutil.Process(pid).terminate()
-                    QMessageBox.information(self, "Повідомлення",
-                                            f"Процес з PID {pid} та ім'ям '{name}' був завершений.")
-                    return
-
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-
-        QMessageBox.warning(self, "Попередження", f"Процес з PID або іменем '{query}' не знайдений.")
 
     def get_gpu_info(self):
-        gpus = []
-        return gpus
+        gpus = GPUtil.getGPUs()
+        gpu_info = []
+        max_gpus = 2
+
+        if not gpus:
+            gpu_info.append(("Нажаль ваша відеокарта не підтримується програмою(", 0, "N/A"))
+
+        for i, gpu in enumerate(gpus):
+            if i >= max_gpus:
+                break
+            gpu_name = gpu.name
+            gpu_memory = gpu.memoryTotal
+            gpu_vendor = self.detect_video_card_vendor(gpu_name)
+            gpu_info.append((gpu_name, gpu_memory, gpu_vendor))
+        return gpu_info
 
     def get_cpu_info(self):
         cpu_percent = psutil.cpu_percent()
@@ -283,25 +262,6 @@ class MyWindow(QMainWindow):
                 disk_info.append((partition_name, disk_total_gb))
         return disk_info
 
-    def get_processes_info(self):
-        process_list = []
-        for process in psutil.process_iter(attrs=["pid", "name", "username"]):
-            try:
-                process_info = process.info
-                pid = process_info['pid']
-                name = process_info['name']
-                username = process_info['username']
-
-                process_list.append((pid, name, username))
-
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        return process_list
-
-    def update_info(self):
-        self.update_processes_table()
-        self.calculate_score()
-
     def calculate_score(self):
         cpu_percent, _, _, _, _ = self.get_cpu_info()
         memory_total_gb = self.get_memory_info()
@@ -317,15 +277,38 @@ class MyWindow(QMainWindow):
         self.score = total_score
         self.score_label.setText(f"Бал системи: {self.score:.2f}")
 
-    def update_processes_table(self):
-        self.processes_table.setRowCount(0)
-        process_list = self.get_processes_info()
+    def get_battery_info(self):
+        battery = psutil.sensors_battery()
+        if battery is not None:
+            is_plugged = battery.power_plugged
+            percent = battery.percent
+            power_status = "Підключено до мережі" if is_plugged else "Не підключено до мережі"
+            return {"Статус батареї": power_status, "Рівень заряду": f"{percent}%"}
+        else:
+            return {"Статус батареї": "Невідомий", "Рівень заряду": "Невідомий"}
 
-        for i, (pid, name, username) in enumerate(process_list):
-            self.processes_table.insertRow(i)
-            self.processes_table.setItem(i, 0, QTableWidgetItem(str(pid)))
-            self.processes_table.setItem(i, 1, QTableWidgetItem(name))
-            self.processes_table.setItem(i, 2, QTableWidgetItem(username))
+
+
+    def update_all_info(self):
+        self.update_system_info()
+        self.update_gpu_info()
+        self.update_cpu_info()
+        self.update_memory_info()
+        self.update_disk_info()
+        self.update_datetime_info()
+        self.update_battery_info()
+        self.update_network_info()
+        self.calculate_score()
+
+    def update_datetime_info(self):
+        current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.info_labels["Дата і час"].setText(f"Поточна дата і час: {current_datetime}")
+
+    def update_battery_info(self):
+        battery_info = self.get_battery_info()
+        for key, value in battery_info.items():
+            self.info_labels[key].setText(f"{key}: {value}")
+
 
 def main():
     app = QApplication(sys.argv)
@@ -333,5 +316,5 @@ def main():
     window.show()
     sys.exit(app.exec_())
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
